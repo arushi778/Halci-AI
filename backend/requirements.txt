@@ -1,0 +1,17 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.5.2
+python-dotenv==1.0.1
+
+# Google Gemini (httpx version managed by google-genai)
+google-genai>=1.7.0
+
+# NLP
+spacy==3.8.2
+
+# Vector DB
+chromadb==0.5.20
+
+# Utilities
+tenacity==9.0.0
