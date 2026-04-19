@@ -19,7 +19,10 @@ class SessionStore:
     def get_or_create(self, session_id: str | None) -> SessionState:
         if session_id and session_id in self._sessions:
             return self._sessions[session_id]
-        session = SessionState(session_id=session_id or None)
+        
+        session_kwargs = {"session_id": session_id} if session_id else {}
+        session = SessionState(**session_kwargs)
+        
         if not session_id:
             session_id = session.session_id
         self._sessions[session_id] = session
