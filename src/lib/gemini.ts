@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, PreFlightAnalysis, SentenceAudit } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY ?? '' });
 
 export async function performPreFlight(prompt: string): Promise<PreFlightAnalysis> {
   const systemInstruction = `
@@ -46,6 +46,18 @@ export async function performPreFlight(prompt: string): Promise<PreFlightAnalysi
   });
 
   return JSON.parse(response.text);
+}
+
+export async function generateResponse(prompt: string): Promise<string> {
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: prompt,
+    config: {
+      systemInstruction: "You are a helpful AI assistant. Respond to the user's prompt with a detailed, well-structured answer.",
+    },
+  });
+
+  return response.text ?? "";
 }
 
 export async function performFullAudit(prompt: string, output: string, preFlight: PreFlightAnalysis): Promise<AnalysisResult> {
