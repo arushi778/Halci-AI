@@ -59,7 +59,6 @@ export default function App() {
   const [view, setView] = useState<ViewState>('prompt');
   // Multi-provider state
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>('gemini');
-  const [selectedModel, setSelectedModel] = useState(PROVIDERS[0].models[0].id);
 
   // Load history
   useEffect(() => {
@@ -114,7 +113,7 @@ export default function App() {
     if (!prompt.trim()) return;
     setIsGenerating(true);
     try {
-      const response = await generateWithProvider(prompt, selectedProvider, selectedModel);
+      const response = await generateWithProvider(prompt, selectedProvider);
       setOutput(response);
     } catch (error: any) {
       console.error('Generation failed', error);
@@ -358,13 +357,7 @@ export default function App() {
                   {/* Model Selector */}
                   <ModelSelector
                     selectedProvider={selectedProvider}
-                    selectedModel={selectedModel}
-                    onProviderChange={(id) => {
-                      setSelectedProvider(id);
-                      const p = PROVIDERS.find((pr) => pr.id === id)!;
-                      setSelectedModel(p.models[0].id);
-                    }}
-                    onModelChange={setSelectedModel}
+                    onProviderChange={setSelectedProvider}
                   />
 
                   {/* Prompt preview */}

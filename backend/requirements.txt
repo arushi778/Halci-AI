@@ -13,5 +13,8 @@ spacy==3.8.2
 # Vector DB
 chromadb==0.5.20
 
+# External APIs
+wikipedia==1.4.0
+
 # Utilities
 tenacity==9.0.0

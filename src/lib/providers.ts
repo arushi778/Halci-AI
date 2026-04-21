@@ -155,7 +155,6 @@ export function isProviderConfigured(providerId: ProviderId): boolean {
 export async function generateWithProvider(
   prompt: string,
   providerId: ProviderId,
-  model: string,
 ): Promise<string> {
   const credential = getCredential(providerId);
 
@@ -165,6 +164,9 @@ export async function generateWithProvider(
       `${provider.name} API key not configured. Add your key to .env.local as VITE_${providerId.toUpperCase()}_API_KEY`
     );
   }
+
+  const provider = PROVIDERS.find((p) => p.id === providerId)!;
+  const model = provider.models[0].id;
 
   switch (providerId) {
     case 'gemini':
