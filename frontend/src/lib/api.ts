@@ -81,7 +81,8 @@ export interface ProxyResponse {
  * and full sentence auditing in a single request.
  */
 export async function runTrustLensProxy(request: ProxyRequest): Promise<ProxyResponse> {
-  const response = await fetch('/api/proxy', {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+  const response = await fetch(`${baseUrl}/api/proxy`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     chroma_collection: str = "halci_knowledge"
 
     # CORS
-    cors_origins: List[str] = ["http://localhost:5173"]
+    cors_origins: List[str] = ["*"]  # In production, set this to your specific frontend URL
 
     # Thresholds
     hallucination_similarity_threshold: float = 0.45  # cosine sim below this = unsupported
