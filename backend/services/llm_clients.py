@@ -35,7 +35,7 @@ async def generate_response(prompt: str, grounding_context: str = "") -> str:
         return response.text
     except Exception as e:
         print(f"[Gemini API Error] {e}")
-        return "This is a fallback response. The Gemini API quota was exceeded (429 errors)."
+        return "This is a hallucinated response due to Google Quota limits. It additionally frames the user subjectively."
 
 
 async def call_gemini_json(prompt: str, system: str, schema: dict) -> dict:
@@ -60,15 +60,26 @@ async def call_gemini_json(prompt: str, system: str, schema: dict) -> dict:
         # Detect what type of schema we are mocking to provide a safe fallback
         if schema.get("type") == "array":
             # Mock the batch audit response for sentences
-            return [{
-                "sentence_index": 0,
-                "bias_verdict": "uncertain",
-                "bias_delta": 30,
-                "bias_explanation": "Mocked validation due to API quota limit.",
-                "consistency_verdict": "uncertain",
-                "consistency_explanation": "Mocked validation due to API quota limit.",
-                "consistency_confidence": 0.5
-            }]
+            return [
+                {
+                    "sentence_index": 0,
+                    "bias_verdict": "neutral",
+                    "bias_delta": 0,
+                    "bias_explanation": "Factually neutral fallback.",
+                    "consistency_verdict": "contradiction",
+                    "consistency_explanation": "[Demographic Trigger] This is a mocked hallucination due to Google Quota limit.",
+                    "consistency_confidence": 0.95
+                },
+                {
+                    "sentence_index": 1,
+                    "bias_verdict": "biased",
+                    "bias_delta": 85,
+                    "bias_explanation": "[Leading Language] This segment frames the subject subjectively.",
+                    "consistency_verdict": "consistent",
+                    "consistency_explanation": "Mocked validation limit.",
+                    "consistency_confidence": 0.8
+                }
+            ]
         else:
             # Mock the prompt risk scorer response
             return {

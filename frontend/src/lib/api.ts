@@ -51,6 +51,17 @@ export interface AuditRecord {
   session_maturity: number;
 }
 
+export interface MaturityDetail {
+  level: number;          // 1–5
+  label: string;          // "Elite", "Advanced", etc.
+  tip: string;            // coaching message
+  scores: {
+    hallucination_pct: number;
+    bias_pct: number;
+    consistency_pct: number;
+  };
+}
+
 export interface ProxyRequest {
   prompt: string;
   use_rag?: boolean;
@@ -62,6 +73,7 @@ export interface ProxyResponse {
   audit: AuditRecord;
   previous_audit: AuditRecord | null;
   alerts?: string[];
+  maturity_detail?: MaturityDetail;
 }
 
 /**

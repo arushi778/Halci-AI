@@ -19,7 +19,7 @@ import { cn } from './lib/utils';
 import { PromptInput } from './components/PromptInput';
 import { PreFlightReport } from './components/PreFlightReport';
 import { DiffView } from './components/DiffView';
-import { MaturityBadge } from './components/MaturityBadge';
+import { MaturityPanel } from './components/MaturityPanel';
 import { MetricsPanel } from './components/MetricsPanel';
 import { ResponseRenderer } from './components/ResponseRenderer';
 
@@ -162,9 +162,7 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="space-y-8"
             >
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <MaturityBadge level={result.audit.session_maturity} />
-
+              <div className="grid grid-cols-3 gap-4">
                 {[
                   { label: 'Factuality', val: result.audit.overall_scores.factuality, color: 'text-emerald-400' },
                   { label: 'Bias (Inv)', val: result.audit.overall_scores.bias_inverse, color: 'text-indigo-400' },
@@ -202,6 +200,13 @@ export default function App() {
                   onIterate={handleIteratePrompt} 
                 />
               </div>
+
+              {/* Full-width Maturity Panel */}
+              <MaturityPanel
+                level={result.audit.session_maturity}
+                detail={result.maturity_detail}
+                overallScores={result.audit.overall_scores}
+              />
             </motion.div>
           )}
 

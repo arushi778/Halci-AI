@@ -24,6 +24,7 @@ from services.sentence_audit import audit_sentences
 from services.rag import retrieve_top_k
 from services.llm_clients import generate_response
 from services.session_store import session_store
+from services.maturity_scorer import compute_maturity
 
 router = APIRouter()
 
@@ -76,9 +77,35 @@ async def proxy_endpoint(req: ProxyRequest):
             "safety": safety,
         }
 
-    # ── Step 6: Session maturity ───────────────────────────────────────────
+    # ── Step 6: Session maturity (threshold-based) ────────────────────────
     session = session_store.get_or_create(req.session_id)
-    session_maturity = min(5, max(1, len(session.audits) + 1))
+    # Temporarily update metrics with THIS audit's data to score maturity
+    # We build a temporary metrics snapshot including the current audit
+    temp_all = session.audits + [AuditRecord(
+        prompt=req.prompt,
+        llm_response=llm_response,
+        prompt_audit=prompt_audit,
+        sentence_results=sentence_results,
+        overall_scores=overall_scores,
+        session_maturity=1,  # placeholder
+        retrieved_docs=[d["source"] for d in retrieved_docs],
+    )]
+    total_s = sum(len(a.sentence_results) for a in temp_all)
+    temp_metrics = SessionMetrics(
+        hallucination_rate=round(
+            sum(1 for a in temp_all for s in a.sentence_results if s.status == "unsupported") / total_s, 3
+        ) if total_s else 0,
+        bias_rate=round(
+            sum(1 for a in temp_all for s in a.sentence_results if s.status == "biased") / total_s, 3
+        ) if total_s else 0,
+        avg_confidence=round(
+            sum(s.confidence for a in temp_all for s in a.sentence_results) / total_s, 3
+        ) if total_s else 0,
+        total_sentences=total_s,
+        total_audits=len(temp_all),
+    )
+    maturity_detail = compute_maturity(temp_metrics)
+    session_maturity = maturity_detail["level"]
 
     # ── Step 7: Build audit record ─────────────────────────────────────────
     audit = AuditRecord(
@@ -105,4 +132,5 @@ async def proxy_endpoint(req: ProxyRequest):
         audit=audit,
         previous_audit=previous_audit,
         alerts=alerts,
+        maturity_detail=maturity_detail,
     )

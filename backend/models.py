@@ -91,6 +91,7 @@ class ProxyResponse(BaseModel):
     audit: AuditRecord
     previous_audit: Optional[AuditRecord] = None   # For diff view
     alerts: list[str] = Field(default_factory=list)  # Anomaly alert messages
+    maturity_detail: Optional[dict] = None           # Level, label, tip, scores
 
 
 class MetricsResponse(BaseModel):
