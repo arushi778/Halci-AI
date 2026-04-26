@@ -77,7 +77,8 @@ export async function performFullAudit(prompt: string, output: string, preFlight
       - error: Unsupported claim or high bias (Red)
     
     Step 4: Provide a one-line plain-language explanation for any flag.
-    Step 5: Calculate overall scores (0-100) and session maturity (1-5).
+    Step 5: If the claim is based on real-world knowledge, provide 1-2 realistic mock sources (e.g., Wikipedia or Google Search results) with a title and link.
+    Step 6: Calculate overall scores (0-100) and session maturity (1-5).
   `;
 
   const response = await ai.models.generateContent({
@@ -128,6 +129,17 @@ export async function performFullAudit(prompt: string, output: string, preFlight
                     },
                   },
                   required: ["hallucination", "bias", "consistency"],
+                },
+                sources: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      title: { type: Type.STRING },
+                      link: { type: Type.STRING },
+                    },
+                    required: ["title", "link"],
+                  },
                 },
               },
               required: ["text", "status", "checks"],

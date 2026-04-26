@@ -40,12 +40,30 @@ import {
   Tooltip
 } from 'recharts';
 import { performPreFlight, performFullAudit } from './lib/gemini';
-import { generateWithProvider, ProviderId, PROVIDERS } from './lib/providers';
+import { generateWithProvider, ProviderId, PROVIDERS, isProviderConfigured, getProvider } from './lib/providers';
 import { AnalysisResult, PreFlightAnalysis, SentenceAudit } from './types';
 import { cn } from './lib/utils';
 import ModelSelector from './components/ModelSelector';
+import ReportPrintView from './components/ReportPrintView';
 
-type ViewState = 'prompt' | 'preflight' | 'output' | 'audit' | 'history';
+type ViewState = 'prompt' | 'preflight' | 'output' | 'audit' | 'history' | 'compare';
+
+export interface CompareResult {
+  provider: ProviderId;
+  output: string;
+  result?: AnalysisResult;
+  error?: string;
+}
+
+export interface HistorySession {
+  id: string;
+  timestamp: number;
+  prompt: string;
+  type: 'single' | 'compare';
+  singleResult?: AnalysisResult;
+  compareResults?: CompareResult[];
+  preFlight?: PreFlightAnalysis;
+}
 
 export default function App() {
   const [prompt, setPrompt] = useState('');
@@ -55,22 +73,25 @@ export default function App() {
   const [preFlight, setPreFlight] = useState<PreFlightAnalysis | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [previousResult, setPreviousResult] = useState<AnalysisResult | null>(null);
-  const [history, setHistory] = useState<AnalysisResult[]>([]);
-  const [view, setView] = useState<ViewState>('prompt');
-  // Multi-provider state
-  const [selectedProvider, setSelectedProvider] = useState<ProviderId>('gemini');
-
-  // Load history
-  useEffect(() => {
+  const [history, setHistory] = useState<HistorySession[]>(() => {
     const saved = localStorage.getItem('halsi_history');
     if (saved) {
       try {
-        setHistory(JSON.parse(saved));
+        return JSON.parse(saved);
       } catch (e) {
         console.error('Failed to parse history', e);
       }
     }
-  }, []);
+    return [];
+  });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [view, setView] = useState<ViewState>('prompt');
+  // Multi-provider state
+  const [selectedProvider, setSelectedProvider] = useState<ProviderId>('gemini');
+  // Comparison state
+  const [isCompareMode, setIsCompareMode] = useState(false);
+  const [compareResults, setCompareResults] = useState<CompareResult[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // Save history
   useEffect(() => {
@@ -99,7 +120,17 @@ export default function App() {
       const audit = await performFullAudit(prompt, output, preFlight);
       if (result) setPreviousResult(result);
       setResult(audit);
-      setHistory(prev => [audit, ...prev].slice(0, 20));
+      
+      const newSession: HistorySession = {
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        prompt,
+        type: 'single',
+        singleResult: audit,
+        preFlight
+      };
+      setHistory(prev => [newSession, ...prev].slice(0, 50));
+      
       setView('audit');
     } catch (error) {
       console.error('Audit failed', error);
@@ -123,13 +154,74 @@ export default function App() {
     }
   };
 
+  const handleCompareModels = async () => {
+    if (!prompt.trim() || !preFlight) return;
+    setIsGenerating(true);
+    try {
+      const configuredProviders = PROVIDERS.filter(p => isProviderConfigured(p.id));
+      if (configuredProviders.length < 2) {
+        alert("Please configure at least 2 providers in .env.local to use comparison mode.");
+        return;
+      }
+      
+      const newCompareResults = await Promise.all(configuredProviders.map(async (p) => {
+        try {
+          const response = await generateWithProvider(prompt, p.id);
+          const audit = await performFullAudit(prompt, response, preFlight);
+          return { provider: p.id, output: response, result: audit };
+        } catch (error: any) {
+          return { provider: p.id, output: '', error: error?.message ?? 'Unknown error' };
+        }
+      }));
+      setCompareResults(newCompareResults);
+      
+      const newSession: HistorySession = {
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        prompt,
+        type: 'compare',
+        compareResults: newCompareResults,
+        preFlight
+      };
+      setHistory(prev => [newSession, ...prev].slice(0, 50));
+      
+      setView('compare');
+    } catch (error: any) {
+      console.error('Comparison failed', error);
+      alert('Comparison failed.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const startNewSession = () => {
     setPrompt('');
     setOutput('');
     setPreFlight(null);
     setResult(null);
     setPreviousResult(null);
+    setCompareResults([]);
     setView('prompt');
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
+  };
+
+  const loadHistorySession = (session: HistorySession) => {
+    setPrompt(session.prompt);
+    setPreFlight(session.preFlight || null);
+    if (session.type === 'compare') {
+      setCompareResults(session.compareResults || []);
+      setView('compare');
+    } else {
+      setResult(session.singleResult || null);
+      if (session.singleResult) setOutput(session.singleResult.output);
+      setView('audit');
+    }
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
+  };
+
+  const deleteHistorySession = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setHistory(prev => prev.filter(s => s.id !== id));
   };
 
   const clearHistory = () => {
@@ -153,46 +245,96 @@ export default function App() {
     }
   };
 
+  const filteredHistory = history.filter(s => s.prompt.toLowerCase().includes(searchQuery.toLowerCase()));
+
   return (
-    <div className="min-h-screen technical-grid flex flex-col text-zinc-100">
+    <>
+    <div className="h-screen overflow-hidden technical-grid flex text-zinc-100 print:hidden">
+      
+      {/* ChatGPT-like Sidebar */}
+      <aside className={cn(
+        "flex-shrink-0 border-r border-zinc-800 bg-zinc-950 flex flex-col transition-all duration-300 z-40 absolute md:relative h-full",
+        isSidebarOpen ? "w-72 translate-x-0" : "w-0 -translate-x-full md:translate-x-0 md:w-0 overflow-hidden border-none"
+      )}>
+        <div className="p-3">
+          <button 
+            onClick={startNewSession}
+            className="w-full flex items-center gap-2 px-3 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white font-medium transition-colors"
+          >
+            <Shield className="w-5 h-5 text-indigo-400" />
+            <span>New Audit</span>
+            <Sparkles className="w-4 h-4 ml-auto text-zinc-400" />
+          </button>
+        </div>
+
+        <div className="px-3 pb-3">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <input 
+              type="text" 
+              placeholder="Search history..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-1">
+          {filteredHistory.length === 0 ? (
+            <p className="text-zinc-500 text-xs text-center mt-6">No history found</p>
+          ) : (
+            filteredHistory.map(session => (
+              <div 
+                key={session.id}
+                onClick={() => loadHistorySession(session)}
+                className="group relative flex items-center gap-3 p-3 rounded-lg hover:bg-zinc-800/50 cursor-pointer transition-colors"
+              >
+                {session.type === 'compare' ? (
+                  <Layers className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                ) : (
+                  <MessageSquare className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-zinc-300 truncate font-medium">{session.prompt}</p>
+                  <p className="text-[10px] text-zinc-500 mt-0.5">
+                    {new Date(session.timestamp).toLocaleDateString()} • {session.type === 'compare' ? 'Comparison' : 'Single Audit'}
+                  </p>
+                </div>
+                <button 
+                  onClick={(e) => deleteHistorySession(e, session.id)}
+                  className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-zinc-700 rounded text-zinc-400 hover:text-red-400 transition-all absolute right-2 bg-zinc-900/80 backdrop-blur-sm"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
+      
       {/* Header */}
-      <header className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+      <header className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-10 flex-shrink-0">
+        <div className="px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <Shield className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="font-bold text-lg tracking-tight">HALCI AI</h1>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">TrustLens Integrity Framework</p>
+            <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2 hover:bg-zinc-800 rounded-md transition-colors"
+            >
+              <LayoutDashboard className="w-5 h-5 text-zinc-400 hover:text-white" />
+            </button>
+            <div className="flex items-center gap-2">
+              <h1 className="font-bold tracking-tight">HALCI AI</h1>
             </div>
           </div>
-
-          <nav className="flex items-center gap-1">
-            <button 
-              onClick={startNewSession}
-              className={cn(
-                "px-4 py-2 rounded-md text-sm font-medium transition-colors",
-                view === 'prompt' || view === 'preflight' || view === 'output' ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"
-              )}
-            >
-              New Audit
-            </button>
-            <button 
-              onClick={() => setView('history')}
-              className={cn(
-                "px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2",
-                view === 'history' ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"
-              )}
-            >
-              <History className="w-4 h-4" />
-              History
-            </button>
-          </nav>
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-8">
+      <main className="flex-1 overflow-y-auto w-full">
+        <div className="max-w-7xl mx-auto p-4 md:p-8">
         <AnimatePresence mode="wait">
           {/* Step 1: Prompt Input */}
           {view === 'prompt' && (
@@ -355,10 +497,26 @@ export default function App() {
                   </div>
 
                   {/* Model Selector */}
-                  <ModelSelector
-                    selectedProvider={selectedProvider}
-                    onProviderChange={setSelectedProvider}
-                  />
+                  <div className={cn("transition-all duration-300", isCompareMode ? "opacity-50 pointer-events-none" : "opacity-100")}>
+                    <ModelSelector
+                      selectedProvider={selectedProvider}
+                      onProviderChange={setSelectedProvider}
+                    />
+                  </div>
+
+                  {/* Compare Toggle */}
+                  <div className="flex items-center gap-2 py-2">
+                    <input 
+                      type="checkbox" 
+                      id="compare-mode" 
+                      checked={isCompareMode} 
+                      onChange={(e) => setIsCompareMode(e.target.checked)} 
+                      className="w-4 h-4 bg-zinc-900 border-zinc-700 rounded text-indigo-600 focus:ring-indigo-500 focus:ring-offset-zinc-900"
+                    />
+                    <label htmlFor="compare-mode" className="text-sm text-zinc-300 cursor-pointer select-none">
+                      Enable Model Comparison Mode
+                    </label>
+                  </div>
 
                   {/* Prompt preview */}
                   <div className="bg-zinc-900/60 rounded-lg p-3 border border-zinc-800">
@@ -368,19 +526,19 @@ export default function App() {
 
                   <button
                     id="generate-with-ai-btn"
-                    onClick={handleGenerateWithProvider}
+                    onClick={isCompareMode ? handleCompareModels : handleGenerateWithProvider}
                     disabled={isGenerating || isProcessing}
                     className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-500 rounded-xl font-bold text-white transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20"
                   >
                     {isGenerating ? (
                       <>
                         <Loader2 className="w-5 h-5 animate-spin" />
-                        Generating Response...
+                        {isCompareMode ? "Comparing Models..." : "Generating Response..."}
                       </>
                     ) : (
                       <>
                         <Sparkles className="w-5 h-5" />
-                        Generate Response
+                        {isCompareMode ? "Compare Configured Models" : "Generate Response"}
                       </>
                     )}
                   </button>
@@ -437,6 +595,19 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="space-y-8"
             >
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">Integrity Audit Dashboard</h2>
+                  <p className="text-sm text-zinc-400">Detailed sentence-level analysis of the LLM response</p>
+                </div>
+                <button 
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-bold text-white transition-colors flex items-center gap-2 shadow-lg shadow-indigo-600/20"
+                >
+                  <FileText className="w-4 h-4" /> Print / Save as PDF
+                </button>
+              </div>
+
               {/* Top Stats */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="glass-panel rounded-2xl p-4 flex flex-col items-center justify-center text-center space-y-1">
@@ -577,104 +748,129 @@ export default function App() {
               </div>
             </motion.div>
           )}
-
-          {/* History View */}
-          {view === 'history' && (
+          {/* Compare View */}
+          {view === 'compare' && compareResults && (
             <motion.div 
-              key="history"
+              key="compare"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="space-y-6"
+              className="space-y-8"
             >
               <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-white">Audit History</h2>
-                <button 
-                  onClick={clearHistory}
-                  className="flex items-center gap-2 text-sm text-zinc-500 hover:text-red-400 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Clear All
-                </button>
-              </div>
-
-              {history.length === 0 ? (
-                <div className="glass-panel rounded-2xl p-12 text-center space-y-4">
-                  <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mx-auto">
-                    <History className="w-8 h-8 text-zinc-600" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-white font-bold">No audits yet</p>
-                    <p className="text-zinc-500 text-sm">Run your first diagnostic to see it here.</p>
-                  </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-white">Model Comparison</h2>
+                  <p className="text-sm text-zinc-400">Comparing outputs and integrity scores across configured providers</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button 
+                    onClick={handleCompareModels}
+                    disabled={isGenerating}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-bold text-white transition-colors flex items-center gap-2 shadow-lg disabled:opacity-50"
+                  >
+                    <RefreshCw className={cn("w-4 h-4", isGenerating && "animate-spin")} /> Run Again
+                  </button>
+                  <button 
+                    onClick={() => window.print()}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-bold text-white transition-colors flex items-center gap-2 shadow-lg shadow-indigo-600/20"
+                  >
+                    <FileText className="w-4 h-4" /> Print / Save as PDF
+                  </button>
                   <button 
                     onClick={() => setView('prompt')}
-                    className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-bold text-white transition-colors"
+                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm font-bold text-white transition-colors flex items-center gap-2"
                   >
-                    Start New Audit
+                    <RefreshCw className="w-4 h-4" /> New Audit
                   </button>
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4">
-                  {history.map((item) => (
-                    <button 
-                      key={item.id}
-                      onClick={() => {
-                        setResult(item);
-                        setView('audit');
-                      }}
-                      className="glass-panel rounded-xl p-4 flex items-center justify-between hover:bg-zinc-800/50 transition-all text-left group"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className={cn(
-                          "w-10 h-10 rounded-lg flex items-center justify-center",
-                          item.preFlight.riskTier === 'high' ? "bg-red-500/20 text-red-400" : "bg-indigo-500/20 text-indigo-400"
-                        )}>
-                          <LayoutDashboard className="w-5 h-5" />
-                        </div>
-                        <div className="max-w-md">
-                          <p className="text-sm font-bold text-white truncate">{item.prompt}</p>
-                          <p className="text-[10px] font-mono text-zinc-500 uppercase">
-                            {new Date(item.timestamp).toLocaleString()} • L{item.sessionMaturity} Maturity
-                          </p>
-                        </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {compareResults.map((cr) => {
+                  const providerInfo = getProvider(cr.provider);
+                  return (
+                    <div key={cr.provider} className="glass-panel rounded-2xl p-6 space-y-4 flex flex-col">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="text-2xl">{providerInfo.icon}</span>
+                        <h3 className={cn("text-lg font-bold", providerInfo.color)}>{providerInfo.name}</h3>
                       </div>
-                      <div className="flex items-center gap-6">
-                        <div className="hidden md:flex items-center gap-4">
-                          <div className="text-center">
-                            <p className="text-[10px] font-mono text-zinc-500 uppercase">Fact</p>
-                            <p className="text-xs font-bold text-emerald-400">{item.overallScores.factuality}%</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-[10px] font-mono text-zinc-500 uppercase">Risk</p>
-                            <p className={cn("text-xs font-bold capitalize", getRiskColor(item.preFlight.riskTier).split(' ')[0])}>
-                              {item.preFlight.riskTier}
-                            </p>
-                          </div>
+                      
+                      {cr.error ? (
+                        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 text-red-400 text-sm flex-1 flex items-center justify-center text-center">
+                          Error: {cr.error}
                         </div>
-                        <ChevronRight className="w-5 h-5 text-zinc-600 group-hover:text-white transition-colors" />
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
+                      ) : cr.result ? (
+                        <>
+                          <div className="space-y-4 flex-1">
+                            {/* Output preview */}
+                            <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50 h-48 overflow-y-auto">
+                              <p className="text-[10px] font-mono text-zinc-500 uppercase mb-2">Response Preview</p>
+                              <p className="text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">{cr.output}</p>
+                            </div>
+                            
+                            {/* Scores */}
+                            <div className="grid grid-cols-2 gap-2">
+                               {[
+                                { label: 'Factuality', val: cr.result.overallScores.factuality, color: 'text-emerald-400' },
+                                { label: 'Bias (Inv)', val: 100 - cr.result.overallScores.bias, color: 'text-indigo-400' },
+                                { label: 'Safety', val: cr.result.overallScores.safety, color: 'text-blue-400' },
+                                { label: 'Consistency', val: cr.result.overallScores.consistency, color: 'text-orange-400' },
+                              ].map((stat) => (
+                                <div key={stat.label} className="bg-zinc-900/30 rounded-lg p-2 text-center border border-zinc-800/30">
+                                  <p className="text-[9px] font-mono text-zinc-500 uppercase">{stat.label}</p>
+                                  <p className={cn("text-lg font-bold", stat.color)}>{stat.val}%</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          
+                          <button
+                            onClick={() => {
+  setResult(cr.result!);
+  setOutput(cr.output);
+  setView('audit');
+}}
+                            className={cn(
+                              "w-full py-3 rounded-xl text-sm font-bold text-white transition-all mt-4 border",
+                              providerInfo.bgColor, providerInfo.borderColor, "hover:opacity-80 flex items-center justify-center gap-2"
+                            )}
+                          >
+                            <BarChart3 className="w-4 h-4" /> View Full Audit
+                          </button>
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
       </main>
 
-      <footer className="border-t border-zinc-800 py-8 bg-zinc-950/50">
-        <div className="max-w-7xl mx-auto px-4 text-center space-y-4">
-          <div className="flex items-center justify-center gap-2 text-zinc-500 text-xs font-mono uppercase tracking-widest">
-            <Shield className="w-3 h-3" />
-            Halci TrustLens™ Production Guard
-          </div>
-          <p className="text-zinc-600 text-[10px] max-w-xl mx-auto">
-            Halci AI monitors model drift and integrity anomalies in real-time. 
-            Audits are grounded in cross-referenced knowledge bases to ensure responsible AI deployment.
+      <footer className="py-4 flex-shrink-0">
+        <div className="text-center">
+          <p className="text-[10px] text-zinc-500 flex items-center justify-center gap-1.5">
+            <Shield className="w-3 h-3 text-zinc-600" />
+            Halci AI can make mistakes. Please verify important information.
           </p>
         </div>
       </footer>
+      </div>
     </div>
+    
+    {/* Hidden Print View */}
+    {(view === 'compare' || view === 'audit') && (
+      <ReportPrintView 
+        prompt={prompt} 
+        compareResults={view === 'compare' ? compareResults : [{ provider: selectedProvider, output: output, result: result! }]} 
+      />
+    )}
+    </>
   );
 }

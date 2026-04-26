@@ -18,6 +18,7 @@ export interface SentenceAudit {
     bias: { status: 'pass' | 'fail' | 'uncertain'; explanation: string };
     consistency: { status: 'pass' | 'fail' | 'uncertain'; explanation: string };
   };
+  sources?: { title: string; link: string }[];
 }
 
 export interface AnalysisResult {
