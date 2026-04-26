@@ -493,7 +493,7 @@ export default function App() {
                   <div className="flex items-center gap-2 mb-1">
                     <Sparkles className="w-4 h-4 text-indigo-400" />
                     <h3 className="text-sm font-bold text-white">Generate with AI</h3>
-                    <span className="ml-auto text-[10px] font-mono text-zinc-500 uppercase">3 providers available</span>
+                    <span className="ml-auto text-[10px] font-mono text-zinc-500 uppercase">2 providers available</span>
                   </div>
 
                   {/* Model Selector */}

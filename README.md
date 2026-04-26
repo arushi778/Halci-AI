@@ -48,7 +48,7 @@ Every prompt you send passes through the **TrustLens™ Integrity Framework**, w
 | 📊 **Session Maturity Tracker** | Computes a rolling L1–L5 maturity score based on your session-wide hallucination rate, bias rate, and average confidence. |
 | 🚨 **Anomaly Detection** | Alerts you when session-level metrics cross dangerous thresholds mid-session. |
 | 🖨️ **Audit Report Export** | Full print-ready audit report view for any individual query result. |
-| 🔀 **Multi-Provider Support** | Frontend supports Gemini, OpenAI, and Groq API keys — swap providers without changing code. |
+| 🔀 **Multi-Provider Support** | Frontend supports Gemini and Groq API keys — swap providers without changing code. |
 
 ---
 
@@ -139,7 +139,7 @@ HALCI AI/
 │   ├── index.css                   # Global styles
 │   ├── types.ts                    # Shared TypeScript type definitions
 │   ├── components/
-│   │   ├── ModelSelector.tsx       # LLM provider picker (Gemini / OpenAI / Groq)
+│   │   ├── ModelSelector.tsx       # LLM provider picker (Gemini / Groq)
 │   │   └── ReportPrintView.tsx     # Full print-ready audit report component
 │   └── lib/                        # Shared utility helpers
 │
@@ -186,8 +186,6 @@ Open `.env.local` and add your API keys:
 # Google Gemini — https://aistudio.google.com/app/apikey
 VITE_GEMINI_API_KEY=your_gemini_api_key_here
 
-# OpenAI (optional) — https://platform.openai.com/api-keys
-VITE_OPENAI_API_KEY=your_openai_api_key_here
 
 # Groq (optional) — https://console.groq.com/keys
 VITE_GROQ_API_KEY=your_groq_api_key_here

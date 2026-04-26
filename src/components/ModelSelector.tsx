@@ -11,7 +11,7 @@ export default function ModelSelector({
   onProviderChange,
 }: ModelSelectorProps) {
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-2 gap-3">
       {PROVIDERS.map((p) => {
         const isSelected = selectedProvider === p.id;
         const configured = isProviderConfigured(p.id);
